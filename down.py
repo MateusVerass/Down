@@ -421,9 +421,11 @@ def find_pagination_urls(soup, base_url):
 
 # ── Crawl ─────────────────────────────────────────────────────────────────────
 
-def crawl(session, url, depth, allowed_types, visited=None, verbose=False):
+def crawl(session, url, depth, allowed_types, visited=None, verbose=False, _stats=None):
     if visited is None:
         visited = set()
+    if _stats is None:
+        _stats = {"pages": 0, "files": 0}
     if url in visited or depth < 0:
         return set()
     visited.add(url)
@@ -432,23 +434,29 @@ def crawl(session, url, depth, allowed_types, visited=None, verbose=False):
     if not html:
         return set()
 
+    _stats["pages"] += 1
     from bs4 import BeautifulSoup
     soup  = BeautifulSoup(html, "html.parser")
     found = extract_urls(soup, html, url, allowed_types, session)
+    _stats["files"] = len(found)
+
+    short_url = url[:72] + "…" if len(url) > 72 else url
+    print(f"  [crawl] page {_stats['pages']:>3}  files {_stats['files']:>4}  {short_url}", flush=True)
+
     parsed = urlparse(url)
     base   = f"{parsed.scheme}://{parsed.netloc}"
 
     # Follow pagination (depth=0 so we only grab files, not recurse further)
     for purl in find_pagination_urls(soup, url):
         if purl not in visited:
-            found |= crawl(session, purl, 0, allowed_types, visited, verbose)
+            found |= crawl(session, purl, 0, allowed_types, visited, verbose, _stats)
 
     # Recurse into same-domain links
     if depth > 0:
         for a in soup.find_all("a", href=True):
             full = urljoin(url, a["href"])
             if get_ext(full) is None and full.startswith(base) and full not in visited:
-                found |= crawl(session, full, depth - 1, allowed_types, visited, verbose)
+                found |= crawl(session, full, depth - 1, allowed_types, visited, verbose, _stats)
 
     return found
 
