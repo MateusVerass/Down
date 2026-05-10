@@ -221,7 +221,62 @@ def get_ext(url):
     return ext if ext else None
 
 
-def extract_urls(html, base_url, allowed_types):
+def fetch_bytes(url, session):
+    """Fetch raw bytes using the best available method."""
+    if _HAS_CFFI:
+        try:
+            r = cffi_requests.get(url, impersonate="chrome124", timeout=20, verify=False)
+            if r.status_code == 200:
+                return r.content
+        except Exception:
+            pass
+    try:
+        r = session.get(url, timeout=15)
+        if r.status_code == 200:
+            return r.content
+    except Exception:
+        pass
+    return None
+
+
+def resolve_csv(csv_url, base_url, allowed_types, session):
+    """Fetch a CSV file and extract all media URLs from every cell."""
+    import csv as csv_mod, io
+    found = set()
+    data = fetch_bytes(csv_url, session)
+    if not data:
+        return found
+    text = data.decode("utf-8", errors="replace").lstrip("﻿")
+    try:
+        reader = csv_mod.reader(io.StringIO(text))
+        for row in reader:
+            for cell in row:
+                cell = cell.strip()
+                if cell.startswith("http"):
+                    ext = get_ext(cell)
+                    if ext and ext in allowed_types:
+                        found.add(cell)
+                elif cell.startswith("/"):
+                    full = urljoin(base_url, cell)
+                    ext  = get_ext(full)
+                    if ext and ext in allowed_types:
+                        found.add(full)
+    except Exception:
+        pass
+    return found
+
+
+def resolve_dvids(video_id, session):
+    """Get the direct MP4 URL for a DVIDS video ID."""
+    url  = f"https://www.dvidshub.net/video/{video_id}"
+    html = fetch_html(url, session)
+    if not html:
+        return None
+    m = re.search(r'(https?://[^\s"\'<>]+\.mp4[^\s"\'<>]*)', html)
+    return m.group(1) if m else None
+
+
+def extract_urls(html, base_url, allowed_types, session=None):
     soup  = BeautifulSoup(html, "html.parser")
     found = set()
 
@@ -270,7 +325,56 @@ def extract_urls(html, base_url, allowed_types):
         if ext and ext in allowed_types:
             found.add(raw)
 
+    # ── CSV data sources embedded in JavaScript ───────────────────────────────
+    if session:
+        csv_urls = set()
+        for m in re.finditer(r"""(?:fetch|src|csvUrl|dataUrl)\s*[=(,]\s*["'`]([^"'`\s]+\.csv(?:\?[^"'`\s]*)?)["'`]""", html, re.I):
+            raw = m.group(1)
+            full = urljoin(base_url, raw)
+            csv_urls.add(full)
+        for csv_url in csv_urls:
+            found |= resolve_csv(csv_url, base_url, allowed_types, session)
+
     return found
+
+
+def find_pagination_urls(html, base_url):
+    """Detect next-page URLs from common pagination patterns."""
+    soup  = BeautifulSoup(html, "html.parser")
+    pages = set()
+
+    # href with ?page=N, ?p=N, /page/N
+    for a in soup.find_all("a", href=True):
+        href = urljoin(base_url, a["href"])
+        if re.search(r'[?&](page|p|pg)=\d+|/page/\d+', href, re.I):
+            pages.add(href)
+
+    # Detect max page number and generate all page URLs
+    nums = []
+    for a in soup.find_all("a", href=True):
+        txt = a.get_text(strip=True)
+        if txt.isdigit():
+            nums.append(int(txt))
+    if nums:
+        max_page = max(nums)
+        # figure out the URL pattern from existing pagination links
+        for a in soup.find_all("a", href=True):
+            href = urljoin(base_url, a["href"])
+            m = re.search(r'([?&])(page|p|pg)=(\d+)', href, re.I)
+            if m:
+                param = m.group(2)
+                for n in range(1, max_page + 1):
+                    paged = re.sub(r'([?&])(page|p|pg)=\d+', rf'\g<1>{param}={n}', href, flags=re.I)
+                    pages.add(paged)
+                break
+            m = re.search(r'/page/(\d+)', href, re.I)
+            if m:
+                base_part = href[:m.start()]
+                for n in range(1, max_page + 1):
+                    pages.add(f"{base_part}/page/{n}")
+                break
+
+    return pages
 
 
 def crawl(session, url, depth, allowed_types, visited=None, verbose=False):
@@ -284,8 +388,14 @@ def crawl(session, url, depth, allowed_types, visited=None, verbose=False):
     if not html:
         return set()
 
-    found = extract_urls(html, url, allowed_types)
+    found = extract_urls(html, url, allowed_types, session)
     base  = "{uri.scheme}://{uri.netloc}".format(uri=urlparse(url))
+
+    # Follow pagination on same page (all detected page URLs)
+    page_urls = find_pagination_urls(html, url)
+    for purl in page_urls:
+        if purl not in visited:
+            found |= crawl(session, purl, 0, allowed_types, visited, verbose)
 
     if depth > 0:
         soup = BeautifulSoup(html, "html.parser")
