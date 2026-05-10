@@ -1,7 +1,25 @@
-# Down
+<div align="center">
 
-Paste a URL — Down crawls it and downloads **everything** automatically.  
-Images, videos, documents, audio. Beats Akamai and Cloudflare bot protection.
+```
+  ██████╗  ██████╗ ██╗    ██╗███╗   ██╗
+  ██╔══██╗██╔═══██╗██║    ██║████╗  ██║
+  ██║  ██║██║   ██║██║ █╗ ██║██╔██╗ ██║
+  ██║  ██║██║   ██║██║███╗██║██║╚██╗██║
+  ██████╔╝╚██████╔╝╚███╔███╔╝██║ ╚████║
+  ╚═════╝  ╚═════╝  ╚══╝╚══╝ ╚═╝  ╚═══╝
+```
+
+**Down crawls any URL and downloads everything — images, videos, documents, audio.**  
+Bypasses Akamai · Cloudflare · Imperva via Chrome TLS fingerprint impersonation.
+
+![Python](https://img.shields.io/badge/Python-3.8%2B-blue?style=flat-square&logo=python&logoColor=white)
+![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)
+![Extensions](https://img.shields.io/badge/Extensions-166-orange?style=flat-square)
+![Threads](https://img.shields.io/badge/Threads-8%20parallel-purple?style=flat-square)
+
+</div>
+
+---
 
 ## Install
 

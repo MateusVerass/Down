@@ -571,7 +571,8 @@ def banner():
     print("  ██████╔╝╚██████╔╝╚███╔███╔╝██║ ╚████║")
     print("  ╚═════╝  ╚═════╝  ╚══╝╚══╝ ╚═╝  ╚═══╝")
     print()
-    print("  Web media downloader — images, videos, documents, audio")
+    print("  Down crawls any URL and downloads everything.")
+    print("  Images · Videos · Documents · Audio · 166 extensions")
     print()
 
 
