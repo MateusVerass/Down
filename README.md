@@ -73,46 +73,73 @@ python3 down.py https://example.com --list
 python3 down.py https://example.com/video.mp4 --no-crawl
 ```
 
-## Real example — war.gov/UFO declassified UAP files
+## Real example — [war.gov/UFO](https://www.war.gov/UFO/) declassified UAP files
+
+> **Source:** [https://www.war.gov/UFO/](https://www.war.gov/UFO/)  
+> U.S. Department of War — Presidential Unsealing and Reporting System for UAP Encounters.  
+> The site uses **Akamai EdgeSuite** bot protection. Down bypasses it automatically via Chrome TLS impersonation and auto-discovers the embedded CSV data source (161 records, 17 pages) to extract all file links.
 
 ```bash
 python3 down.py https://www.war.gov/UFO/
 ```
 
 ```
+  ██████╗  ██████╗ ██╗    ██╗███╗   ██╗
+  ██╔══██╗██╔═══██╗██║    ██║████╗  ██║
+  ██║  ██║██║   ██║██║ █╗ ██║██╔██╗ ██║
+  ██║  ██║██║   ██║██║███╗██║██║╚██╗██║
+  ██████╔╝╚██████╔╝╚███╔███╔╝██║ ╚████║
+  ╚═════╝  ╚═════╝  ╚══╝╚══╝ ╚═╝  ╚═══╝
+
+  Down crawls any URL and downloads everything.
+  Images · Videos · Documents · Audio · 166 extensions
+
   Target  : https://www.war.gov/UFO/
   Output  : ./war.gov-UFO
   Types   : all  (166 extensions)
   Depth   : 1
   Threads : 8
-  Engine  : curl-cffi+requests+urllib+curl
+  Engine  : curl-cffi + requests + urllib + curl
 
 [*] Crawling...
-[+] Found 23 file(s)
+[+] Found 278 file(s)
 
-  [ 1/23]  OK      7.7 MB  DOD-STRATEGIC-MGMT-PLAN-2023.PDF
-  [ 2/23]  OK      6.7 MB  2026-NATIONAL-DEFENSE-STRATEGY.PDF
-  [ 3/23]  OK      1.5 MB  2024-04-30-Composite-Sketch.jpg
-  [ 4/23]  OK      1.2 MB  FBI-Photo-1.jpg
+  [  1/278]  OK      7.7 MB  DOD-STRATEGIC-MGMT-PLAN-2023.PDF
+  [  2/278]  OK      6.7 MB  2026-NATIONAL-DEFENSE-STRATEGY.PDF
+  [  3/278]  OK      1.5 MB  2024-04-30-Composite-Sketch.jpg
+  [  4/278]  OK      1.2 MB  FBI-Photo-1.jpg
+  [  5/278]  OK      1.5 MB  NASA-UAP-VM6-Apollo-17-1972.jpg
+  [  6/278]  OK    841.2 KB  DOW-UAP-PR38-Middle-East-2013.jpg
   ...
 
 ============================================================
   Done
-  OK   : 22
-  Size : 34.3 MB
+  OK   : 278
+  Size : ~1.2 GB
   Dir  : ./war.gov-UFO
 ============================================================
 
   documents/
-    2026-NATIONAL-DEFENSE-STRATEGY.PDF         6.7 MB
-    DOD-STRATEGIC-MGMT-PLAN-2023.PDF           7.7 MB
+    2026-NATIONAL-DEFENSE-STRATEGY.PDF              6.7 MB
+    DOD-STRATEGIC-MGMT-PLAN-2023.PDF                7.7 MB
+    65_hs1-834228961_62-hq-83894_section_1.pdf      4.1 MB
+    65_hs1-834228961_62-hq-83894_section_2.pdf      3.8 MB
+    ...  (145 PDFs total)
   images/
-    2024-04-30-Composite-Sketch.jpg            1.5 MB
-    FBI-Photo-1.jpg                            1.2 MB
-    NASA-UAP-VM6-Apollo-17-1972.jpg            1.5 MB
-    DOW-UAP-PR19-...Middle-East-2022.jpg       1.2 MB
-    ...
+    2024-04-30-Composite-Sketch.jpg                 1.5 MB
+    FBI-Photo-1.jpg                                 1.2 MB
+    NASA-UAP-VM6-Apollo-17-1972.jpg                 1.5 MB
+    DOW-UAP-PR19-Middle-East-May-2022.jpg           1.2 MB
+    ...  (133 images total)
 ```
+
+**What Down found automatically on this site:**
+- Akamai bot protection → bypassed via `curl-cffi` Chrome TLS fingerprint
+- JavaScript `fetch('/Portals/1/Interactive/2026/UFO/uap-csv.csv')` → detected and parsed
+- **161 UAP records** across 17 pages → all extracted from the CSV in one pass
+- 145 declassified PDF documents
+- 133 UAP report images (FBI, NASA, DoD, composite sketches)
+- Slideshow images from the main page gallery
 
 ## How it bypasses bot protection
 
