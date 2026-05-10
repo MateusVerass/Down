@@ -1,33 +1,39 @@
 # Down
 
-Web media downloader. Crawls a URL and downloads **images**, **videos**, and **documents** — organized by type.
+Paste a URL — Down crawls it and downloads **everything** automatically.  
+Images, videos, documents, audio. Beats Akamai and Cloudflare bot protection.
 
 ## Install
 
 ```bash
-pip install requests beautifulsoup4
+pip install requests beautifulsoup4 curl-cffi
 ```
+
+> `curl-cffi` impersonates Chrome's exact TLS fingerprint, bypassing CDN bot detection.  
+> If it's not installed, Down auto-installs it on first run.
 
 ## Usage
 
+```bash
+python3 down.py <URL>
 ```
-python3 down.py <URL> [options]
-```
+
+That's it. Output folder is named automatically from the URL.
 
 ```
 positional arguments:
-  url                   Target URL to crawl
+  url                   Target URL
 
 options:
-  -o, --output DIR      Output directory (default: ./down_output)
-  -t, --types LIST      Types: images, videos, documents, audio, all (default: all)
+  -o, --output DIR      Output directory (default: auto from URL)
+  -t, --types LIST      images, videos, documents, audio, all (default: all)
   -d, --depth INT       Crawl depth (default: 1)
-  -j, --threads INT     Concurrent downloads (default: 4)
-  --delay FLOAT         Delay between requests in seconds (default: 0.2)
-  --ua STRING           Custom User-Agent
+  -j, --threads INT     Concurrent downloads (default: 8)
+  --delay FLOAT         Delay between requests (default: 0.1s)
   --no-crawl            Download the URL directly without crawling
-  --html FILE           Use a local HTML file instead of fetching (bypass bot protection)
   --list                List found URLs without downloading
+  --html FILE           Use a local HTML file (last resort bypass)
+  --verbose             Show which fetch strategy succeeded
 ```
 
 ## Examples
@@ -36,67 +42,47 @@ options:
 # Download everything from a page
 python3 down.py https://example.com
 
-# Download only images and videos
+# Only images and videos
 python3 down.py https://example.com -t images,videos
 
-# Set output folder
-python3 down.py https://example.com -o ~/Downloads/site
-
-# Crawl 2 levels deep with 8 threads
+# Crawl 2 levels deep, 8 parallel threads
 python3 down.py https://example.com -d 2 -j 8
 
-# Just list what would be downloaded
+# See what would be downloaded without downloading
 python3 down.py https://example.com --list
 
-# Download a single file directly
-python3 down.py https://example.com/file.pdf --no-crawl
+# Download one file directly
+python3 down.py https://example.com/video.mp4 --no-crawl
 ```
 
 ## Real example — war.gov/UFO declassified UAP files
 
-The U.S. Department of War's [UFO page](https://www.war.gov/UFO/) hosts declassified UAP reports, FBI photos, NASA images and DoD documents.
-
-The site uses Akamai CDN bot protection that blocks automated HTML fetching.
-Down handles this with the `--html` flag: save the page manually in your browser and pass it as input.
-
-**Step 1** — Save the page in your browser:
-```
-Right-click → Save As → war.gov-UFO.html
-```
-
-Or with curl (which uses native TLS, bypassing the fingerprint check):
 ```bash
-curl -sL -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36" \
-  -H "Sec-Fetch-Dest: document" -H "Sec-Fetch-Mode: navigate" \
-  https://www.war.gov/UFO/ -o war.gov-UFO.html
+python3 down.py https://www.war.gov/UFO/
 ```
 
-**Step 2** — Run Down:
-```bash
-python3 down.py https://www.war.gov/UFO/ \
-  --html war.gov-UFO.html \
-  -t images,documents \
-  -o ufo_files
 ```
+  Target  : https://www.war.gov/UFO/
+  Output  : ./war.gov-UFO
+  Types   : all  (166 extensions)
+  Depth   : 1
+  Threads : 8
+  Engine  : curl-cffi+requests+urllib+curl
 
-**Output:**
-```
-[*] Using local HTML: war.gov-UFO.html
+[*] Crawling...
 [+] Found 23 file(s)
 
   [ 1/23]  OK      7.7 MB  DOD-STRATEGIC-MGMT-PLAN-2023.PDF
   [ 2/23]  OK      6.7 MB  2026-NATIONAL-DEFENSE-STRATEGY.PDF
   [ 3/23]  OK      1.5 MB  2024-04-30-Composite-Sketch.jpg
   [ 4/23]  OK      1.2 MB  FBI-Photo-1.jpg
-  [ 5/23]  OK      1.5 MB  FBI-Photo-B2.jpg
   ...
 
 ============================================================
   Done
   OK   : 22
-  Fail : 0
   Size : 34.3 MB
-  Dir  : ./ufo_files
+  Dir  : ./war.gov-UFO
 ============================================================
 
   documents/
@@ -104,38 +90,41 @@ python3 down.py https://www.war.gov/UFO/ \
     DOD-STRATEGIC-MGMT-PLAN-2023.PDF           7.7 MB
   images/
     2024-04-30-Composite-Sketch.jpg            1.5 MB
-    DOW-UAP-PR19-...Middle-East-May-2022.jpg   1.2 MB
-    DOW-UAP-PR26-...UAE-October-2023.jpg       1.0 MB
     FBI-Photo-1.jpg                            1.2 MB
-    FBI-Photo-A5.jpg                           1.1 MB
     NASA-UAP-VM6-Apollo-17-1972.jpg            1.5 MB
+    DOW-UAP-PR19-...Middle-East-2022.jpg       1.2 MB
     ...
 ```
+
+## How it bypasses bot protection
+
+Down tries 4 strategies automatically, in order:
+
+| # | Strategy | Bypasses |
+|---|----------|---------|
+| 1 | **curl-cffi** — Chrome TLS fingerprint impersonation | Akamai, Cloudflare, Imperva |
+| 2 | **requests** — fast, standard Python HTTP | Basic blocks |
+| 3 | **urllib** — different SSL stack | Some TLS-based blocks |
+| 4 | **system curl** — native binary with full Sec-Fetch headers | Most remaining CDN checks |
+
+If all 4 fail (e.g. login required), save the page with your browser and use `--html page.html`.
 
 ## Output structure
 
 ```
-down_output/
-  images/       jpg, jpeg, png, gif, webp, svg, bmp, tiff, ico, avif
-  videos/       mp4, mkv, avi, mov, webm, flv, wmv, m4v, ts
-  documents/    pdf, doc, docx, xls, xlsx, ppt, zip, csv, ...
-  audio/        mp3, wav, ogg, flac, aac, m4a, opus
+<site-name>/
+  images/       jpg, png, gif, webp, heic, avif, svg, psd, raw, cr2, dng …
+  videos/       mp4, mkv, avi, mov, webm, ts, 3gp, flv, rmvb, mxf …
+  documents/    pdf, docx, xlsx, epub, zip, iso, dmg …
+  audio/        mp3, flac, wav, aac, ogg, opus, aiff, dsd …
   others/       anything else
 ```
 
-## Supported types
+## Supported extensions — 166 total
 
-| Type      | Extensions |
-|-----------|-----------|
-| images    | jpg, jpeg, jfif, png, gif, webp, apng, bmp, tiff, ico, avif, heic, heif, psd, xcf, svg, svgz, ai, eps, raw, cr2, cr3, nef, arw, dng, orf, raf, rw2 … |
-| videos    | mp4, m4v, mkv, avi, mov, wmv, flv, webm, mpeg, mpg, ts, m2ts, 3gp, 3g2, f4v, vob, ogv, rm, rmvb, mxf, dv, divx, xvid, qt … |
-| documents | pdf, doc, docx, odt, rtf, xls, xlsx, csv, ppt, pptx, txt, md, json, xml, epub, mobi, djvu, zip, rar, 7z, tar, gz, bz2, iso, dmg … |
-| audio     | mp3, m4a, aac, ogg, opus, flac, wav, aiff, wma, ape, mka, mid, amr, dsd … |
-
-## Notes
-
-- Sites protected by Akamai, Cloudflare or similar CDNs may block automated HTML fetching.
-  Use `--html` with a browser-saved page to bypass this.
-- Down automatically tries `requests`, `urllib`, and `curl` when fetching HTML.
-- Downloads validate `Content-Type` to skip pages disguised as files.
-- Concurrent downloads with `-j` to speed up large batches.
+| Type | Count | Formats |
+|------|-------|---------|
+| images | 48 | jpg jpeg png gif webp heic avif psd xcf svg ai eps raw cr2 cr3 nef arw dng … |
+| videos | 45 | mp4 mkv avi mov webm ts m2ts 3gp f4v vob rmvb mxf dv divx xvid … |
+| documents | 47 | pdf docx xlsx pptx epub mobi djvu zip rar 7z tar gz iso dmg deb … |
+| audio | 27 | mp3 flac wav aac ogg opus aiff wma ape dsd mid amr … |
