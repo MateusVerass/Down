@@ -127,10 +127,10 @@ down_output/
 
 | Type      | Extensions |
 |-----------|-----------|
-| images    | jpg, jpeg, png, gif, webp, svg, bmp, tiff, ico, avif |
-| videos    | mp4, mkv, avi, mov, webm, flv, wmv, m4v, ts, mpeg |
-| documents | pdf, doc, docx, xls, xlsx, ppt, pptx, txt, csv, zip, rar, 7z |
-| audio     | mp3, wav, ogg, flac, aac, m4a, opus, wma |
+| images    | jpg, jpeg, jfif, png, gif, webp, apng, bmp, tiff, ico, avif, heic, heif, psd, xcf, svg, svgz, ai, eps, raw, cr2, cr3, nef, arw, dng, orf, raf, rw2 … |
+| videos    | mp4, m4v, mkv, avi, mov, wmv, flv, webm, mpeg, mpg, ts, m2ts, 3gp, 3g2, f4v, vob, ogv, rm, rmvb, mxf, dv, divx, xvid, qt … |
+| documents | pdf, doc, docx, odt, rtf, xls, xlsx, csv, ppt, pptx, txt, md, json, xml, epub, mobi, djvu, zip, rar, 7z, tar, gz, bz2, iso, dmg … |
+| audio     | mp3, m4a, aac, ogg, opus, flac, wav, aiff, wma, ape, mka, mid, amr, dsd … |
 
 ## Notes
 

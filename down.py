@@ -26,10 +26,53 @@ except ImportError:
 # ── File type definitions ─────────────────────────────────────────────────────
 
 EXTENSIONS = {
-    "images":    {"jpg", "jpeg", "png", "gif", "webp", "svg", "bmp", "tiff", "ico", "avif"},
-    "videos":    {"mp4", "mkv", "avi", "mov", "webm", "flv", "wmv", "m4v", "ts", "mpeg", "mpg"},
-    "documents": {"pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "txt", "csv", "zip", "rar", "7z", "tar", "gz"},
-    "audio":     {"mp3", "wav", "ogg", "flac", "aac", "m4a", "opus", "wma"},
+    "images": {
+        # JPEG
+        "jpg", "jpeg", "jfif", "jpe",
+        # PNG / GIF / WebP
+        "png", "gif", "webp", "apng",
+        # Camera RAW
+        "raw", "cr2", "cr3", "nef", "nrw", "arw", "srf", "sr2",
+        "orf", "rw2", "dng", "pef", "raf", "3fr", "kdc", "dcr",
+        # Other raster
+        "bmp", "tiff", "tif", "ico", "avif", "heic", "heif",
+        "psd", "psb", "xcf", "ppm", "pgm", "pbm", "pnm",
+        "exr", "hdr", "tga", "wbmp", "xbm", "xpm",
+        # Vector
+        "svg", "svgz", "ai", "eps",
+    },
+    "videos": {
+        # Common
+        "mp4", "m4v", "mkv", "avi", "mov", "wmv", "flv", "webm",
+        # MPEG
+        "mpeg", "mpg", "mpe", "m1v", "m2v", "mp2", "mpv", "ts",
+        "m2ts", "mts", "vob", "mod", "tod",
+        # Mobile / streaming
+        "3gp", "3g2", "3gpp", "3gpp2", "f4v", "f4p",
+        # Other
+        "ogv", "ogg", "rm", "rmvb", "asf", "divx", "xvid",
+        "mxf", "qt", "yuv", "amv", "nsv", "svi", "trp", "tp",
+        "dv", "gxf", "roq",
+    },
+    "documents": {
+        # Office
+        "pdf", "doc", "docx", "odt", "rtf", "pages",
+        "xls", "xlsx", "ods", "numbers", "csv", "tsv",
+        "ppt", "pptx", "odp", "key",
+        # Text / Markup
+        "txt", "md", "rst", "tex", "xml", "json", "yaml", "yml",
+        # E-book
+        "epub", "mobi", "azw", "azw3", "djvu", "fb2", "cbz", "cbr",
+        # Archives
+        "zip", "rar", "7z", "tar", "gz", "bz2", "xz", "lz4",
+        "zst", "cab", "iso", "dmg", "pkg", "deb", "rpm",
+    },
+    "audio": {
+        "mp3", "m4a", "aac", "ogg", "oga", "opus", "flac",
+        "wav", "wave", "aiff", "aif", "aifc", "wma", "wv",
+        "ape", "mka", "mid", "midi", "amr", "au", "ra",
+        "mpc", "tta", "dsd", "dsf", "dff", "caf",
+    },
 }
 
 ALL_EXTENSIONS = {ext for exts in EXTENSIONS.values() for ext in exts}
