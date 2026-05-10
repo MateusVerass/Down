@@ -4,13 +4,12 @@ Down - Web media downloader
 Crawls a URL and downloads images, videos, and documents.
 """
 import argparse
-import os
 import re
 import sys
 import time
+import urllib.request
 import warnings
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime
 from pathlib import Path
 from urllib.parse import urljoin, urlparse
 
@@ -34,8 +33,13 @@ EXTENSIONS = {
 }
 
 ALL_EXTENSIONS = {ext for exts in EXTENSIONS.values() for ext in exts}
+FOLDER_MAP     = {ext: cat for cat, exts in EXTENSIONS.items() for ext in exts}
 
-FOLDER_MAP = {ext: category for category, exts in EXTENSIONS.items() for ext in exts}
+# UA for downloading files (Safari — bypasses most CDN blocks)
+UA_DOWNLOAD = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15"
+# UA for fetching HTML pages (Windows Chrome — bypasses different CDN blocks)
+UA_CRAWL    = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+
 
 # ── HTTP session ──────────────────────────────────────────────────────────────
 
@@ -43,7 +47,7 @@ def make_session(user_agent=None, referer=None):
     s = requests.Session()
     s.verify = False
     s.headers.update({
-        "User-Agent":      user_agent or "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15",
+        "User-Agent":      user_agent or UA_DOWNLOAD,
         "Accept":          "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
         "Accept-Language": "en-US,en;q=0.9",
     })
@@ -52,12 +56,126 @@ def make_session(user_agent=None, referer=None):
     return s
 
 
+# ── HTML fetching with fallback ───────────────────────────────────────────────
+
+def fetch_html(session, url):
+    """
+    Fetch HTML from url using multiple strategies:
+    1. requests  — fastest, blocked by some CDNs via TLS fingerprint
+    2. urllib    — different TLS stack, bypasses some blocks
+    3. curl      — native binary, best browser TLS impersonation
+    """
+    import subprocess, ssl
+
+    strategies = [
+        ("requests", None),
+        ("urllib",   None),
+        ("curl",     None),
+    ]
+
+    for attempt, _ in strategies:
+        try:
+            if attempt == "requests":
+                r = session.get(url, timeout=15)
+                if r.status_code != 200:
+                    continue
+                if "html" not in r.headers.get("Content-Type", ""):
+                    continue
+                return r.text
+
+            elif attempt == "urllib":
+                req = urllib.request.Request(url, headers={
+                    "User-Agent":      UA_CRAWL,
+                    "Accept":          "text/html,application/xhtml+xml,*/*;q=0.8",
+                    "Accept-Language": "en-US,en;q=0.9",
+                    "Accept-Encoding": "gzip, deflate",
+                    "Cache-Control":   "max-age=0",
+                })
+                ctx = ssl.create_default_context()
+                ctx.check_hostname = False
+                ctx.verify_mode    = ssl.CERT_NONE
+                with urllib.request.urlopen(req, timeout=15, context=ctx) as resp:
+                    if resp.status != 200:
+                        continue
+                    if "html" not in resp.headers.get("Content-Type", ""):
+                        continue
+                    return resp.read().decode("utf-8", errors="replace")
+
+            elif attempt == "curl":
+                result = subprocess.run(
+                    [
+                        "curl", "-sL", "--max-time", "15", "-k",
+                        "-A", UA_CRAWL,
+                        "-H", "Accept: text/html,application/xhtml+xml,*/*;q=0.8",
+                        "-H", "Accept-Language: en-US,en;q=0.9",
+                        "-H", "Cache-Control: max-age=0",
+                        "-H", "Sec-Fetch-Dest: document",
+                        "-H", "Sec-Fetch-Mode: navigate",
+                        "-H", "Sec-Fetch-Site: none",
+                        "-H", "Sec-Fetch-User: ?1",
+                        "-H", "Upgrade-Insecure-Requests: 1",
+                        url,
+                    ],
+                    capture_output=True, timeout=20,
+                )
+                html = result.stdout.decode("utf-8", errors="replace")
+                if result.returncode == 0 and "<html" in html.lower():
+                    return html
+
+        except Exception:
+            continue
+
+    return None
+
+
 # ── Crawling ──────────────────────────────────────────────────────────────────
 
 def get_ext(url):
-    path = urlparse(url).path
-    ext = Path(path).suffix.lstrip(".").lower()
+    path = urlparse(url).path.split("?")[0]
+    ext  = Path(path).suffix.lstrip(".").lower()
     return ext if ext else None
+
+
+def extract_urls(html, base_url, allowed_types):
+    """Extract all media URLs from an HTML page."""
+    soup = BeautifulSoup(html, "html.parser")
+    found = set()
+
+    tag_attrs = [
+        ("a",      ["href"]),
+        ("img",    ["src", "data-src", "data-original", "data-lazy-src"]),
+        ("video",  ["src", "poster"]),
+        ("source", ["src", "srcset"]),
+        ("link",   ["href"]),
+        ("embed",  ["src"]),
+        ("object", ["data"]),
+    ]
+
+    for tag, attrs in tag_attrs:
+        for el in soup.find_all(tag):
+            for attr in attrs:
+                val = el.get(attr, "")
+                if not val:
+                    continue
+                # srcset can have multiple URLs: "url1 1x, url2 2x"
+                candidates = [v.strip().split()[0] for v in val.split(",")]
+                for raw in candidates:
+                    if not raw or raw.startswith("data:"):
+                        continue
+                    full = urljoin(base_url, raw)
+                    ext  = get_ext(full)
+                    if ext and ext in allowed_types:
+                        found.add(full)
+
+    # Also scan inline style attributes for background-image URLs
+    for el in soup.find_all(style=True):
+        for m in re.finditer(r'url\(["\']?(https?://[^"\')\s]+)["\']?\)', el["style"]):
+            full = m.group(1)
+            ext  = get_ext(full)
+            if ext and ext in allowed_types:
+                found.add(full)
+
+    return found
 
 
 def crawl(session, url, depth, allowed_types, visited=None):
@@ -68,41 +186,20 @@ def crawl(session, url, depth, allowed_types, visited=None):
         return set()
 
     visited.add(url)
-    found = set()
 
-    try:
-        r = session.get(url, timeout=15)
-        if r.status_code != 200:
-            return found
-        content_type = r.headers.get("Content-Type", "")
-        if "html" not in content_type:
-            return found
-    except Exception:
-        return found
+    html = fetch_html(session, url)
+    if not html:
+        return set()
 
-    soup = BeautifulSoup(r.text, "html.parser")
-    base = "{uri.scheme}://{uri.netloc}".format(uri=urlparse(url))
+    found    = extract_urls(html, url, allowed_types)
+    base     = "{uri.scheme}://{uri.netloc}".format(uri=urlparse(url))
 
-    tags = [
-        ("a",      "href"),
-        ("img",    "src"),
-        ("video",  "src"),
-        ("source", "src"),
-        ("link",   "href"),
-        ("script", "src"),
-        ("embed",  "src"),
-    ]
-
-    for tag, attr in tags:
-        for el in soup.find_all(tag):
-            href = el.get(attr)
-            if not href:
-                continue
-            full = urljoin(url, href)
-            ext = get_ext(full)
-            if ext and ext in allowed_types:
-                found.add(full)
-            elif depth > 0 and ext is None and full.startswith(base):
+    if depth > 0:
+        soup = BeautifulSoup(html, "html.parser")
+        for a in soup.find_all("a", href=True):
+            full = urljoin(url, a["href"])
+            ext  = get_ext(full)
+            if ext is None and full.startswith(base) and full not in visited:
                 found |= crawl(session, full, depth - 1, allowed_types, visited)
 
     return found
@@ -119,26 +216,25 @@ def fmt_size(b):
 
 
 def safe_filename(url):
-    name = Path(urlparse(url).path).name
-    name = re.sub(r'[^\w.\-]', '_', name)
+    name = Path(urlparse(url).path.split("?")[0]).name
+    name = re.sub(r"[^\w.\-]", "_", name)
     return name or "file"
 
 
 def download_file(session, url, output_dir, delay=0.0):
-    ext = get_ext(url)
+    ext      = get_ext(url)
     category = FOLDER_MAP.get(ext, "others")
-    folder = output_dir / category
+    folder   = output_dir / category
     folder.mkdir(parents=True, exist_ok=True)
 
     filename = safe_filename(url)
-    dest = folder / filename
+    dest     = folder / filename
 
-    # avoid overwriting: append suffix if name collision
     counter = 1
     while dest.exists() and dest.stat().st_size > 0:
-        stem = Path(filename).stem
+        stem   = Path(filename).stem
         suffix = Path(filename).suffix
-        dest = folder / f"{stem}_{counter}{suffix}"
+        dest   = folder / f"{stem}_{counter}{suffix}"
         counter += 1
 
     if dest.exists() and dest.stat().st_size > 0:
@@ -178,18 +274,20 @@ examples:
   down https://example.com -o ~/Downloads/site
   down https://example.com -t images,videos
   down https://example.com -d 2 -j 8
+  down https://www.war.gov/UFO/ -t images,documents
   down https://example.com --no-crawl
         """,
     )
-    parser.add_argument("url",                        help="Target URL to crawl")
-    parser.add_argument("-o", "--output",             default="down_output", help="Output directory (default: ./down_output)")
-    parser.add_argument("-t", "--types",              default="all",         help="Types to download: images,videos,documents,audio,all (default: all)")
-    parser.add_argument("-d", "--depth",              type=int, default=1,   help="Crawl depth (default: 1)")
-    parser.add_argument("-j", "--threads",            type=int, default=4,   help="Concurrent downloads (default: 4)")
-    parser.add_argument(      "--delay",              type=float, default=0.2, help="Delay between requests in seconds (default: 0.2)")
-    parser.add_argument(      "--ua",                 default=None,          help="Custom User-Agent string")
-    parser.add_argument(      "--no-crawl",           action="store_true",   help="Download the URL directly, no crawling")
-    parser.add_argument(      "--list",               action="store_true",   help="List found URLs without downloading")
+    parser.add_argument("url",               help="Target URL to crawl")
+    parser.add_argument("-o", "--output",    default="down_output",  help="Output directory (default: ./down_output)")
+    parser.add_argument("-t", "--types",     default="all",          help="Types: images,videos,documents,audio,all (default: all)")
+    parser.add_argument("-d", "--depth",     type=int, default=1,    help="Crawl depth (default: 1)")
+    parser.add_argument("-j", "--threads",   type=int, default=4,    help="Concurrent downloads (default: 4)")
+    parser.add_argument(      "--delay",     type=float, default=0.2, help="Delay between requests in seconds (default: 0.2)")
+    parser.add_argument(      "--ua",        default=None,           help="Custom User-Agent string")
+    parser.add_argument(      "--no-crawl",  action="store_true",    help="Download the URL directly, no crawling")
+    parser.add_argument(      "--list",      action="store_true",    help="List found URLs without downloading")
+    parser.add_argument(      "--html",      default=None,           help="Use a local HTML file instead of fetching the URL (bypass bot protection)")
     return parser.parse_args()
 
 
@@ -236,11 +334,15 @@ def main():
 
     # ── Discover URLs ─────────────────────────────────────────────────────────
     if args.no_crawl:
-        ext = get_ext(args.url)
+        ext  = get_ext(args.url)
         urls = {args.url} if ext and ext in allowed_ext else set()
         if not urls:
-            print(f"[!] URL extension '.{ext}' not in selected types. Use --types or omit --no-crawl.")
+            print(f"[!] URL extension '.{ext}' not in selected types.")
             sys.exit(1)
+    elif args.html:
+        print(f"[*] Using local HTML: {args.html}")
+        html = Path(args.html).read_text(encoding="utf-8", errors="replace")
+        urls = extract_urls(html, args.url, allowed_ext)
     else:
         print("[*] Crawling...")
         urls = crawl(session, args.url, args.depth, allowed_ext)
@@ -260,13 +362,12 @@ def main():
     # ── Download ──────────────────────────────────────────────────────────────
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    results = []
+    results    = []
     ok = fail = skip = 0
     total_bytes = 0
-
-    url_list = sorted(urls)
-    total = len(url_list)
-    width = len(str(total))
+    url_list   = sorted(urls)
+    total      = len(url_list)
+    width      = len(str(total))
 
     def do_download(i_url):
         i, url = i_url
@@ -282,17 +383,14 @@ def main():
             if status == "ok":
                 ok += 1
                 total_bytes += info
-                label = f"OK   {fmt_size(info):>9}"
-                print(f"  [{i:{width}d}/{total}]  {label}  {name}")
+                print(f"  [{i:{width}d}/{total}]  OK   {fmt_size(info):>9}  {name}")
             elif status == "skip":
                 skip += 1
                 total_bytes += info
-                label = f"SKIP {fmt_size(info):>9}"
-                print(f"  [{i:{width}d}/{total}]  {label}  {name}")
+                print(f"  [{i:{width}d}/{total}]  SKIP {fmt_size(info):>9}  {name}")
             else:
                 fail += 1
-                label = f"FAIL          "
-                print(f"  [{i:{width}d}/{total}]  {label}  {name}  ({info})")
+                print(f"  [{i:{width}d}/{total}]  FAIL            {name}  ({info})")
 
             results.append((status, dest if status != "error" else url, info))
 
@@ -309,8 +407,8 @@ def main():
     print()
 
     # ── Folder tree ───────────────────────────────────────────────────────────
-    categories = sorted({FOLDER_MAP.get(get_ext(str(p)), "others") for _, p, _ in results if _ != "error"})
-    for cat in categories:
+    cats = sorted({FOLDER_MAP.get(get_ext(str(p)), "others") for s, p, _ in results if s != "error"})
+    for cat in cats:
         folder = output_dir / cat
         if folder.exists():
             files = sorted(folder.iterdir())
